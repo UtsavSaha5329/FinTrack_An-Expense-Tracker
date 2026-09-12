@@ -25,6 +25,11 @@ RENEWAL_PERIODS = {"daily", "weekly", "monthly", "yearly"}
 SUBSCRIPTION_STATUSES = {"active", "paused", "cancelled", "expired"}
 
 
+def local_today() -> date:
+    """Return the date from this device's configured local time zone."""
+    return datetime.now().astimezone().date()
+
+
 @dataclass(frozen=True)
 class DatabaseConfig:
     """Database connection values loaded from the environment."""
@@ -260,7 +265,7 @@ class FinTrackApp:
         ])
 
     def add_expense(self) -> None:
-        today = date.today()
+        today = local_today()
         expense_date = read_date("Expense date", today)
         amount = read_amount("Amount: ")
         category = read_nonempty("Category: ")
@@ -350,10 +355,16 @@ class FinTrackApp:
         print("Subscription updated.")
 
     def renewal_alerts(self) -> None:
-        today = date.today()
+        """Show upcoming renewals and renew a due subscription once for today.
+
+        An overdue subscription is deliberately renewed from today's date instead
+        of replaying every missed renewal. For example, a daily subscription that
+        is ten days overdue creates one expense dated today and renews tomorrow.
+        """
+        today = local_today()
         cutoff = today + timedelta(days=7)
         rows = self.db.fetch_all(
-            """SELECT id, description, amount, renewal_date, renewal_period
+            """SELECT id, category, description, amount, renewal_date, renewal_period, annual_total
                  FROM expenses
                  WHERE user_id = %s AND expense_type = 'recurring' AND status = 'active'
                    AND renewal_date <= %s
@@ -368,8 +379,42 @@ class FinTrackApp:
             when = "today" if days == 0 else (f"{abs(days)} day(s) overdue" if days < 0 else f"in {days} day(s)")
             print(f"[{row['id']}] {row['description']}: {row['amount']} due {when} ({row['renewal_date']}).")
 
+            # Do not offer early renewal: this action is for subscriptions that
+            # are due today or overdue. A single new entry is created for today.
+            if days > 0:
+                continue
+            answer = input("Renew this subscription for today only? [y/N]: ").strip().lower()
+            if answer != "y":
+                continue
+
+            next_renewal = renewal_date(today, row["renewal_period"])
+            self.db.execute(
+                "UPDATE expenses SET status = 'expired' WHERE id = %s AND user_id = %s",
+                (row["id"], self.user_id),
+            )
+            self.db.execute(
+                """INSERT INTO expenses
+                   (user_id, expense_date, amount, category, description, expense_type,
+                    renewal_date, renewal_period, status, annual_total)
+                   VALUES (%s, %s, %s, %s, %s, 'recurring', %s, %s, 'active', %s)""",
+                (
+                    self.user_id,
+                    today,
+                    row["amount"],
+                    row["category"],
+                    row["description"],
+                    next_renewal,
+                    row["renewal_period"],
+                    row["annual_total"],
+                ),
+            )
+            print(
+                f"Renewed for today ({today}). "
+                f"Next renewal: {next_renewal}."
+            )
+
     def dashboard(self) -> None:
-        today = date.today()
+        today = local_today()
         month_start = today.replace(day=1)
         next_month = renewal_date(month_start, "monthly")
         total_row = self.db.fetch_one(

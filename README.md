@@ -7,6 +7,8 @@ FinTrack is a command-line expense tracker built with Python and MySQL. It recor
 - Create password-protected local accounts; passwords are stored as salted PBKDF2 hashes.
 - Add, view, edit, and delete personal expenses.
 - Track recurring subscriptions with daily, weekly, monthly, or yearly renewal schedules.
+- Renew due or overdue subscriptions once for today without adding charges for missed dates.
+- Use the date from the device's configured local time zone for new expenses and renewals.
 - Pause, cancel, or reactivate subscriptions without deleting history.
 - Review current-month spending by category and estimated subscription cost.
 - Keep database credentials outside source control.
